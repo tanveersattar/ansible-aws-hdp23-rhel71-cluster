@@ -1,0 +1,58 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Terminates AWS cluster instances based on instance IDs in local inventory of Ansible control machine.
+#    The instance ids are written in ~/.ansible/local_inventory/{{ hdp_cluster_id }}/all.instances.ids
+#    at the time of setup. If this file is missing, playbook will fail.
+# 
+# Note: 
+#   VPC and security groups created at the time of setup can't be deleted autmatically, so you may want to
+#   delete them manually using AWS console.
+#
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+  - "../config/variables.yml"
+  vars:
+    _local_inventory_dir: "~/.ansible/local_inventory/{{ hdp_cluster_id }}"
+  
+  tasks:
+
+#
+# Terminate All Nodes        
+#      
+  - name: Terminate All Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: absent
+    register: ec2_nodes
+    with_lines:
+     - cat {{ _local_inventory_dir }}/all.instances.ids
+     
+#
+# Remove VPC
+#   
+#  - name: Remove the VPC 
+#    local_action:
+#      module: ec2_vpc
+#      state: absent
+#      region: "{{ aws_region }}"
+#      ec2_access_key: "{{ aws_access_key }}"
+#      ec2_secret_key: "{{ aws_secret_key }}"
+#      vpc_id: "{{ item }}"
+#      resource_tags: { "Name":"{{ hdp_cluster_id }} vpc" }
+#      wait: true
+#    register: vpc
+#    with_lines:
+#     - cat ~/.ansible/local_inventory/{{ hdp_cluster_id }}/vpc.ids

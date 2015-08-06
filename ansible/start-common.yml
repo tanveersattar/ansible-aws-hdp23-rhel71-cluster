@@ -1,0 +1,62 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Starts and/or configures the following on all AWS instances of HDP cluster:
+#      - Hostnames
+#      - NTP
+#      - Ambari Agents
+# 
+# Note:  
+#   Hostnames are reset to public DNS names when cluster instances started. This plabook sets hostnames 
+#   from all.instances local inventory file.
+#    
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: all
+  connection: local
+  gather_facts: False
+
+  tasks:
+  - name: Wait for SSH to be available on hosts
+    local_action: wait_for host={{ inventory_hostname }} port=22
+
+    
+- hosts: all
+  user: ec2-user
+  sudo: True
+  gather_facts: False
+  vars_files:
+  - "../config/variables.yml"
+  vars:
+    _local_inventory_dir: "~/.ansible/local_inventory/{{ hdp_cluster_id }}"
+  
+  tasks:
+
+#
+# Setup hostnames
+# 
+  - name: Copying hosts file to instance
+    copy: src="{{ _local_inventory_dir }}/hdp.hosts" dest=/etc/hosts  
+
+  - name: Create hostname in /etc/hostname
+    lineinfile: dest=/etc/hostname state=present create=yes regexp='.*' line="{{ internalhostname }}"
+
+  - name: Set hostname in /etc/sysconfig/network
+    lineinfile: dest=/etc/sysconfig/network create=yes state=present regexp='HOSTNAME=.*' line="HOSTNAME={{ internalhostname }}"
+
+  - name: Set hostname
+    shell: hostname {{ internalhostname }}  
+    
+#
+# Start NTP service
+#	
+  - name: Start NTP
+    service: name=ntpd state=restarted
+#
+# Start Ambari Agents
+#
+  - name: Start Ambari agent
+    service: name=ambari-agent state=restarted 
+#

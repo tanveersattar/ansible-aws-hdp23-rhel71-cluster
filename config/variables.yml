@@ -1,0 +1,55 @@
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Setup variables to be used in playbooks.
+#    This yml file does not need to be changed (unless changing CIDR values which are directly defined here)
+#    as all variable values are passed to hdp.sh script using .conf file in config folder and exported as
+#    environment variables which are then used here using lookup.
+# 
+# Note:  
+#    
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+aws_access_key: "{{ lookup('env', 'AWS_ACCESS_KEY') }}"
+aws_secret_key: "{{ lookup('env', 'AWS_SECRET_KEY') }}"
+
+hdp_cluster_id: "{{ lookup('env', 'HDP_CLUSTER_ID') }}"
+hdp_cluster_name: "{{ lookup('env', 'HDP_CLUSTER_NAME') }}"
+
+aws_keypair_name: "{{ lookup('env', 'AWS_KEYPAIR_NAME') }}"
+aws_region: "{{ lookup('env', 'AWS_REGION') }}"
+aws_image_id: "{{ lookup('env', 'AWS_IMAGE_ID') }}"
+
+aws_vpc_cidr_block: 10.0.0.0/16
+aws_vpc_subnets:
+ - cidr: 10.0.1.0/24
+   az: "{{ lookup('env', 'AWS_AVAILABILITY_ZONE') }}"
+aws_vpc_internet_gateway: "yes"
+aws_vpc_route_tables:
+ - subnets:
+    - 10.0.1.0/24
+   routes:
+    - dest: 0.0.0.0/0
+      gw: igw
+
+hdp_edgenode_num: "{{ lookup('env', 'HDP_EDGENODE_NUM') }}"
+hdp_edgenode_hue_host_id: "{{ lookup('env', 'HDP_EDGENODE_HUE_HOST_ID') }}"
+hdp_edgenode_ambari_host_id: "{{ lookup('env', 'HDP_EDGENODE_AMBARI_HOST_ID') }}"
+hdp_edgenode_instance_type: "{{ lookup('env', 'HDP_EDGENODE_INSTANCE_TYPE') }}"
+hdp_edgenode_ebs_vol_size_gb: "{{ lookup('env', 'HDP_EDGENODE_EBS_VOL_SIZE_GB') }}"
+
+hdp_masternode_num: "{{ lookup('env', 'HDP_MASTERNODE_NUM') }}"
+hdp_masternode_instance_type: "{{ lookup('env', 'HDP_MASTERNODE_INSTANCE_TYPE') }}"
+hdp_masternode_ebs_vol_size_gb: "{{ lookup('env', 'HDP_MASTERNODE_EBS_VOL_SIZE_GB') }}"
+
+hdp_slavenode_num: "{{ lookup('env', 'HDP_SLAVENODE_NUM') }}"
+hdp_slavenode_instance_type: "{{ lookup('env', 'HDP_SLAVENODE_INSTANCE_TYPE') }}"
+hdp_slavenode_ebs_vol_size_gb: "{{ lookup('env', 'HDP_SLAVENODE_EBS_VOL_SIZE_GB') }}"
+
+hdp_oracle_jdk_ver: "{{ lookup('env', 'HDP_ORACLE_JDK_VER') }}"
+hdp_oracle_jdk_download_url: "{{ lookup('env', 'HDP_ORACLE_JDK_DOWNLOAD_URL') }}"
+hdp_ambari_repo: "{{ lookup('env', 'HDP_AMBARI_REPO') }}"
+hdp_repo: "{{ lookup('env', 'HDP_REPO') }}"
+
+#java_alternatives: "{{ lookup('file', '../scripts/java_alternatives.sh') }}"
+

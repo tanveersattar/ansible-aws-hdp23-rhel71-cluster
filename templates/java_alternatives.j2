@@ -1,0 +1,12 @@
+rm -f /var/lib/alternatives/java && \
+rm -f /var/lib/alternatives/jar && \
+rm -f /var/lib/alternatives/javac && \
+rm -f /var/lib/alternatives/javaws && \
+alternatives --install /usr/bin/java java /usr/java/{{ hdp_oracle_jdk_ver }}/jre/bin/java 20000 && \
+alternatives --install /usr/bin/jar jar /usr/java/{{ hdp_oracle_jdk_ver }}/bin/jar 20000 && \
+alternatives --install /usr/bin/javac javac /usr/java/{{ hdp_oracle_jdk_ver }}/bin/javac 20000 && \
+alternatives --install /usr/bin/javaws javaws /usr/java/{{ hdp_oracle_jdk_ver }}/jre/bin/javaws 20000 && \
+alternatives --set java /usr/java/{{ hdp_oracle_jdk_ver }}/jre/bin/java && \
+alternatives --set javaws /usr/java/{{ hdp_oracle_jdk_ver }}/jre/bin/javaws && \
+alternatives --set javac /usr/java/{{ hdp_oracle_jdk_ver }}/bin/javac && \
+alternatives --set jar /usr/java/{{ hdp_oracle_jdk_ver }}/bin/jar

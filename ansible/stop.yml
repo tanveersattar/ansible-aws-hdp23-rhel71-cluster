@@ -1,0 +1,77 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Stops AWS cluster instances based on instance IDs in local inventory of Ansible control machine.
+#    The instance ids are written in ~/.ansible/local_inventory/{{ hdp_cluster_id }}/*.instances.ids
+#    at the time of setup. If these files are missing, playbook will fail.
+# 
+# Note: 
+#   As Hadoop services might be running on these instances, you might want to stop them down properly
+#   before attempting to stop the cluster instances. 
+#
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+  - "../config/variables.yml"
+  vars:
+    _local_inventory_dir: "~/.ansible/local_inventory/{{ hdp_cluster_id }}"
+  
+  tasks:
+
+#
+# Stop Edge Node        
+#      
+  - name: Stop Edge Node
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: stopped
+    register: ec2_edges
+    with_lines:
+     - cat {{ _local_inventory_dir }}/edge.instances.ids
+
+#
+# Stop Slave Nodes        
+#      
+  - name: Stop Slave Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: stopped
+    register: ec2_slavenodes
+    with_lines:
+     - cat {{ _local_inventory_dir }}/slave.instances.ids
+#
+# Stop Master Nodes        
+#      
+  - name: Stop Master Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: stopped
+    register: ec2_masternodes
+    with_lines:
+     - cat {{ _local_inventory_dir }}/master.instances.ids

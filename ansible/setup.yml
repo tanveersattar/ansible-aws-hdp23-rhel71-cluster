@@ -1,0 +1,355 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Setup VPC, Security Groups and AWS instances for HDP cluster. The inventory is maintained locally
+#    on Ansible control machine in {{ _local_inventory_dir }} where hdp_cluster_id is HDP_CLUSTER_ID 
+#    variable set in configuration file. One inventory per cluster is created. This 
+#    inventory is later used to start/stop/terminate the cluster. 
+#    *.instances files in the inventory have public IPs and access details for all nodes
+#    *.instances.ids files in the inventory have AWS instance ids for the nodes
+#    hdp.hosts file is mapping of private IPs to hostnames, this is copied as /etc/hosts to all nodes
+#    vpc.ids file in inventory has vpc ids
+# 
+# Note:  
+#
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+  - "../config/variables.yml"
+  vars:
+    _local_inventory_dir: "~/.ansible/local_inventory/{{ hdp_cluster_id }}"
+    _vpc_resource_tag: "{{ hdp_cluster_id }} vpc" 
+    _edgenode_sg_name: "{{ hdp_cluster_id }}_edgenode_sg"
+    _masternode_sg_name: "{{ hdp_cluster_id }}_masternode_sg"
+    _hadoop_sg_name: "{{ hdp_cluster_id }}_hadoop_sg"
+    _edgenode_hostname_prefix: "{{ hdp_cluster_id }}.edge"
+    _masternode_hostname_prefix: "{{ hdp_cluster_id }}.master"
+    _slavenode_hostname_prefix: "{{ hdp_cluster_id }}.slave"
+    _hostnames_fqdn: ""
+  
+  tasks:
+#
+# Initialize inventory directory        
+#
+  - name: Creating local_inventory directory if it does not exist 
+    file: path={{ _local_inventory_dir }} state=directory
+
+#
+# Create VPC
+#   
+  - name: Create the VPC 
+    local_action:
+      module: ec2_vpc
+      state: present
+      region: "{{ aws_region }}"
+      ec2_access_key: "{{ aws_access_key }}"
+      ec2_secret_key: "{{ aws_secret_key }}"
+      cidr_block: "{{ aws_vpc_cidr_block }}"
+      resource_tags: { "Name":"{{ _vpc_resource_tag }}" }
+      subnets: "{{ aws_vpc_subnets }}"
+      internet_gateway: "{{ aws_vpc_internet_gateway|string }}"
+      route_tables: "{{ aws_vpc_route_tables }}"    
+      wait: true
+    register: vpc
+
+  - name: Adding vpc-id to vpc.ids inventory file
+    shell: echo -e "{{ vpc.vpc_id }}" > {{ _local_inventory_dir }}/vpc.ids        
+
+#
+# Create Security Groups
+#       
+  - name: Create security group for edge node
+    local_action:
+     module: ec2_group
+     name: "{{ _edgenode_sg_name }}"
+     description: "{{ hdp_cluster_id }} edge node security group"
+     purge_rules: False
+     purge_rules_egress: False
+     vpc_id: "{{ vpc.vpc_id }}"
+     region: "{{ aws_region }}"
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 8080
+        to_port: 8080
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 8787
+        to_port: 8787
+        cidr_ip: 0.0.0.0/0        
+      - proto: tcp
+        from_port: 7180
+        to_port: 7180
+        cidr_ip: 0.0.0.0/0   
+      - proto: tcp
+        from_port: 50000
+        to_port: 50100
+        cidr_ip: 0.0.0.0/0
+# Required for Hue
+      - proto: tcp
+        from_port: 8000
+        to_port: 8000
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 8088
+        to_port: 8088
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 19888
+        to_port: 19888
+        cidr_ip: 0.0.0.0/0        
+    register: edgenode_sg
+
+  - name: Create security group for all nodes of cluster
+    local_action:
+     module: ec2_group
+     name: "{{ _hadoop_sg_name }}"
+     description: "{{ hdp_cluster_id }} hadoop security group"
+     purge_rules: False
+     purge_rules_egress: False
+     vpc_id: "{{ vpc.vpc_id }}"
+     region: "{{ aws_region }}"
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 8042
+        to_port: 8042
+        cidr_ip: 0.0.0.0/0        
+      - proto: all
+        group_name: "{{ _edgenode_sg_name }}"
+      - proto: all
+        cidr_ip: 10.0.1.0/24
+    register: hadoop_sg
+
+  - name: Create security group for master nodes
+    local_action:
+     module: ec2_group
+     name: "{{ _masternode_sg_name }}"
+     description: "{{ hdp_cluster_id }} master node security group"
+     purge_rules: False
+     purge_rules_egress: False
+     vpc_id: "{{ vpc.vpc_id }}"
+     region: "{{ aws_region }}"
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     rules:
+      - proto: tcp
+        from_port: 50070
+        to_port: 50070
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 60010
+        to_port: 60010
+        cidr_ip: 0.0.0.0/0
+    register: masternode_sg    
+    
+  - name: Update edge node security group
+    local_action:
+     module: ec2_group
+     name: "{{ _edgenode_sg_name }}"
+     description: "{{ hdp_cluster_id }} edge node security group"
+     purge_rules: False
+     purge_rules_egress: False
+     vpc_id: "{{ vpc.vpc_id }}"
+     region: "{{ aws_region }}"
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     rules:
+      - proto: all
+        group_name: "{{ _hadoop_sg_name }}"    
+
+#
+# Initialize inventory files        
+#
+  - name: Initialize hdp.hosts file
+    shell: echo -e "127.0.0.1\tlocalhost" > {{ _local_inventory_dir }}/hdp.hosts
+
+    
+  - name: Remove edge.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.instances 
+
+  - name: Remove edge.ambari.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.ambari.instances
+
+  - name: Remove edge.hue.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.hue.instances
+
+  - name: Remove edge.instances.ids inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.instances.ids
+ 
+ 
+  - name: Remove master.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/master.instances 
+
+  - name: Remove master.instances.ids inventory file
+    shell: rm -f {{ _local_inventory_dir }}/master.instances.ids 
+    
+
+  - name: Remove slave.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/slave.instances 
+
+  - name: Remove slave.instances.ids inventory file
+    shell: rm -f {{ _local_inventory_dir }}/slave.instances.ids 
+
+#
+# Create Edge Nodes       
+#
+  - name: Create Edge Node EC2 Instances 
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     key_name: "{{ aws_keypair_name }}"
+     group_id: "{{ edgenode_sg.group_id }}"
+     instance_type: "{{ hdp_edgenode_instance_type }}"
+     image: "{{ aws_image_id }}"
+     vpc_subnet_id: "{{ vpc.subnets[0].id }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     volumes:
+      - device_name: /dev/sda1
+        volume_size: "{{ hdp_edgenode_ebs_vol_size_gb }}"
+        delete_on_termination: true
+     instance_tags:
+      Name: "{{ _edgenode_hostname_prefix }}{{ item }}{{ _hostnames_fqdn }}"
+      ClusterID: "{{ hdp_cluster_id }}"
+    register: ec2_edges
+    with_sequence: count={{ hdp_edgenode_num }}
+
+    
+  - name: Add edge nodes to edge.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/edge.instances
+    with_items: "{{ ec2_edges.results }}" 
+
+  - name: Add edge nodes hostnames to edge.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _edgenode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' edge.instances > edge.instances.tmp && mv edge.instances.tmp edge.instances
+
+  - name: Add edge node IDs to edge.instances.ids inventory file
+    shell: echo -e "{{ item.instances[0].id }}" >> {{ _local_inventory_dir }}/edge.instances.ids   
+    with_items: "{{ ec2_edges.results }}"
+
+  - name: Add hue node to edge.hue.instances inventory file
+    shell: grep -F "{{ _edgenode_hostname_prefix }}{{ hdp_edgenode_hue_host_id }}" {{ _local_inventory_dir }}/edge.instances >> {{ _local_inventory_dir }}/edge.hue.instances   
+
+  - name: Add ambari node to edge.ambari.instances inventory file
+    shell: grep -F "{{ _edgenode_hostname_prefix }}{{ hdp_edgenode_ambari_host_id }}" {{ _local_inventory_dir }}/edge.instances >> {{ _local_inventory_dir }}/edge.ambari.instances     
+
+  - name: Add edge nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _edgenode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_edges.results }}"
+    
+
+#
+# Create Master Nodes
+#    
+  - name: Create EC2 Instances for the Master Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     key_name: "{{ aws_keypair_name }}"
+     group_id: ["{{ hadoop_sg.group_id }}","{{ masternode_sg.group_id }}"]
+     instance_type: "{{ hdp_masternode_instance_type }}"
+     image: "{{ aws_image_id }}"
+     vpc_subnet_id: "{{ vpc.subnets[0].id }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     volumes:
+      - device_name: /dev/sda1
+        volume_size: "{{ hdp_masternode_ebs_vol_size_gb }}"
+        delete_on_termination: true
+     instance_tags:
+      Name: "{{ _masternode_hostname_prefix }}{{ item }}{{ _hostnames_fqdn }}"
+      ClusterID: "{{ hdp_cluster_id }}"
+    register: ec2_masters
+    with_sequence: count={{ hdp_masternode_num }}
+   
+  - name: Add master nodes to master.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/master.instances
+    with_items: "{{ ec2_masters.results }}" 
+
+  - name: Add master nodes hostnames to master.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _masternode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' master.instances > master.instances.tmp && mv master.instances.tmp master.instances
+
+  - name: Add master node IDs to master.instances.ids inventory file
+    shell: echo -e "{{ item.instances[0].id }}" >> {{ _local_inventory_dir }}/master.instances.ids   
+    with_items: "{{ ec2_masters.results }}"
+
+  - name: Add master nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _masternode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_masters.results }}"
+
+
+#
+# Create Slave Nodes
+#       
+  - name: Create the EC2 Instances for the Slave Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     key_name: "{{ aws_keypair_name }}"
+     group_id: "{{ hadoop_sg.group_id }}"
+     instance_type: "{{ hdp_slavenode_instance_type }}"
+     image: "{{ aws_image_id }}"
+     vpc_subnet_id: "{{ vpc.subnets[0].id }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     volumes:
+      - device_name: /dev/sda1
+        volume_size: "{{ hdp_slavenode_ebs_vol_size_gb }}"
+        delete_on_termination: true
+     instance_tags:
+      Name: "{{ _slavenode_hostname_prefix }}{{ item }}{{ _hostnames_fqdn }}"
+      ClusterID: "{{ hdp_cluster_id }}"
+    register: ec2_slaves
+    with_sequence: count={{ hdp_slavenode_num }}
+    
+  - name: Add slave nodes to slave.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/slave.instances
+    with_items: "{{ ec2_slaves.results }}" 
+
+  - name: Add slave nodes hostnames to slave.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _slavenode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' slave.instances > slave.instances.tmp && mv slave.instances.tmp slave.instances
+
+  - name: Add slave node IDs to slave.instances.ids inventory file
+    shell: echo -e "{{ item.instances[0].id }}" >> {{ _local_inventory_dir }}/slave.instances.ids   
+    with_items: "{{ ec2_slaves.results }}"
+
+  - name: Add slave nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _slavenode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_slaves.results }}"
+
+# Creating Global Inventory    
+    
+  - name: Remove global inventory file (all.instances)
+    shell: rm -f {{ _local_inventory_dir }}/all.instances 
+    
+  - name: Creating global inventory file (all.instances)
+    shell: cd {{ _local_inventory_dir }};cat edge.instances master.instances slave.instances > all.instances  
+    
+  - name: Creating global inventory file (all.instances.ids)
+    shell: cd {{ _local_inventory_dir }};cat edge.instances.ids master.instances.ids slave.instances.ids > all.instances.ids   

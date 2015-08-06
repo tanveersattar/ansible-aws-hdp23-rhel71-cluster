@@ -1,0 +1,160 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Starts AWS cluster instances based on instance IDs in local inventory of Ansible control machine.
+#    The instance ids are written in ~/.ansible/local_inventory/{{ hdp_cluster_id }}/*.instances.ids
+#    at the time of setup. If these files are missing, playbook will fail.
+# 
+# Note: 
+#   As public IPs are assigned dynamically, this playbook refreshes all *.instances files in Ansible's 
+#   local inventory after starting up instances. It also refreshes hdp.hosts file which has mapping of 
+#   private IPs to hostnames (although because cluster is setup within VPC, internal IPs don't change)
+#   If VPC is not used then this hdp.hosts file need to be copied to /etc/hosts on all instances. 
+#
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: localhost
+  connection: local
+  gather_facts: False
+  vars_files:
+  - "../config/variables.yml"
+  vars:
+    _local_inventory_dir: "~/.ansible/local_inventory/{{ hdp_cluster_id }}"
+    _edgenode_hostname_prefix: "{{ hdp_cluster_id }}.edge"
+    _masternode_hostname_prefix: "{{ hdp_cluster_id }}.master"
+    _slavenode_hostname_prefix: "{{ hdp_cluster_id }}.slave"
+    _hostnames_fqdn: ""
+  
+  tasks:
+
+#
+# Initialize inventory files (excluding instances.ids files)       
+#
+  - name: Initialize hdp.hosts file
+    shell: echo -e "127.0.0.1\tlocalhost" > {{ _local_inventory_dir }}/hdp.hosts
+
+  - name: Remove edge.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.instances 
+
+  - name: Remove edge.ambari.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.ambari.instances
+
+  - name: Remove edge.hue.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/edge.hue.instances
+ 
+ 
+  - name: Remove master.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/master.instances 
+    
+
+  - name: Remove slave.instances inventory file
+    shell: rm -f {{ _local_inventory_dir }}/slave.instances 
+
+#
+# Start Edge Node        
+#      
+  - name: Start Edge Node
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: running
+    register: ec2_edges
+    with_lines:
+     - cat {{ _local_inventory_dir }}/edge.instances.ids
+
+  - name: Add edge nodes to edge.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/edge.instances
+    with_items: "{{ ec2_edges.results }}" 
+
+  - name: Add edge nodes hostnames to edge.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _edgenode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' edge.instances > edge.instances.tmp && mv edge.instances.tmp edge.instances
+
+  - name: Add hue node to edge.hue.instances inventory file
+    shell: grep -F "{{ _edgenode_hostname_prefix }}{{ hdp_edgenode_hue_host_id }}" {{ _local_inventory_dir }}/edge.instances >> {{ _local_inventory_dir }}/edge.hue.instances   
+
+  - name: Add ambari node to edge.ambari.instances inventory file
+    shell: grep -F "{{ _edgenode_hostname_prefix }}{{ hdp_edgenode_ambari_host_id }}" {{ _local_inventory_dir }}/edge.instances >> {{ _local_inventory_dir }}/edge.ambari.instances     
+
+  - name: Add edge nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _edgenode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_edges.results }}"
+
+#
+# Start Master Nodes        
+#      
+  - name: Start Master Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: running
+    register: ec2_masters
+    with_lines:
+     - cat {{ _local_inventory_dir }}/master.instances.ids
+    
+  - name: Add master nodes to master.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/master.instances
+    with_items: "{{ ec2_masters.results }}" 
+
+  - name: Add master nodes hostnames to master.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _masternode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' master.instances > master.instances.tmp && mv master.instances.tmp master.instances
+
+  - name: Add master nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _masternode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_masters.results }}"
+
+#
+# Start Slave Nodes        
+#      
+  - name: Start Slave Nodes
+    local_action:
+     module: ec2
+     aws_access_key: "{{ aws_access_key }}"
+     aws_secret_key: "{{ aws_secret_key }}"
+     region: "{{ aws_region }}"
+     assign_public_ip: yes  
+     wait: yes
+     monitoring: yes
+     instance_ids: "{{ item }}"
+     state: running
+    register: ec2_slaves
+    with_lines:
+     - cat {{ _local_inventory_dir }}/slave.instances.ids
+
+  - name: Add slave nodes to slave.instances inventory file
+    shell: echo -e "{{ item.instances[0].public_dns_name }}\tansible_ssh_private_key_file=~/{{ aws_keypair_name }}.pem\tansible_ssh_user=ec2-user" >> {{ _local_inventory_dir }}/slave.instances
+    with_items: "{{ ec2_slaves.results }}" 
+
+  - name: Add slave nodes hostnames to slave.instances inventory file
+    shell: cd {{ _local_inventory_dir }};awk '{ print $0 "\tinternalhostname={{ _slavenode_hostname_prefix }}" FNR "{{ _hostnames_fqdn }}"}' slave.instances > slave.instances.tmp && mv slave.instances.tmp slave.instances
+
+  - name: Add slave nodes to hdp.hosts inventory file
+    shell: echo -e "{{ item.1.instances[0].private_ip }}\t{{ _slavenode_hostname_prefix }}{{ item.0 + 1 }}{{ _hostnames_fqdn }}" >> {{ _local_inventory_dir }}/hdp.hosts
+    with_indexed_items: "{{ ec2_slaves.results }}"
+   
+
+
+# Creating Global Inventory    
+    
+  - name: Remove global inventory file (all.instances)
+    shell: rm -f ~/.ansible/local_inventory/{{ hdp_cluster_id }}/all.instances 
+    
+  - name: Create global inventory file (all.instances)
+    shell: cd ~/.ansible/local_inventory/{{ hdp_cluster_id }};cat edge.instances master.instances slave.instances > all.instances
+
+# TODO : Copy hdp.hosts file to all nodes (if internal IPs are dynamic)
+#  - name: Copying hosts file to instance
+#    copy: src="~/.ansible/local_inventory/{{ hdp_cluster_id }}/hdp.hosts" dest=/etc/hosts  

@@ -1,0 +1,37 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Setup and configures the following on edge node:
+#      - Ambari Server
+# 
+# Note:  
+#   HDP 2.3 cluster needs to be configured using Ambari after this. 
+#   After HDP cluster setup using Ambari is complete, run post-setup to 
+#     - remove duplicate HDP-UTILS repo
+#     - setup and start Hue (work in progress)
+#    
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: all
+  user: ec2-user
+  sudo: True
+  vars_files:
+  - "../config/variables.yml"
+  gather_facts: False
+  
+  tasks:
+#
+# Install and Start Ambari Server       
+#    
+  - name: Install Ambari server
+    yum:
+      pkg: ambari-server
+      state: installed
+
+  - name: Configure Ambari server
+    command: ambari-server setup -s
+
+  - name: Start Ambari server
+    service: name=ambari-server state=restarted   
+      
+  - debug: msg="Ambari Server available at http://{{ inventory_hostname }}:8080"

@@ -1,0 +1,23 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Starts and/or configures the following on edge node:
+#      - Ambari Server
+#    
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: all
+  user: ec2-user
+  sudo: True
+  vars_files:
+  - "../config/variables.yml"
+  gather_facts: False
+  
+  tasks:
+#
+# Start Ambari Server       
+#  
+  - name: Start Ambari server
+    service: name=ambari-server state=restarted   
+      
+  - debug: msg="Ambari Server available at http://{{ inventory_hostname }}:8080"

@@ -1,0 +1,36 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Setup and configures the following on all nodes of the cluster:
+#      - Remove HDP YUM repo added by setup process (to workaround snappy issue). This repo is setup again
+#        by Ambari when HDP cluster is setup using it, thus duplicating HDP-UTILS repo. 
+# 
+# Note:  
+#   This has to be executed after HDP cluster is setup using Ambari. 
+#    
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+
+- hosts: all
+  connection: local
+
+  tasks:
+  - name: Wait for SSH to be available on Inventory Hosts
+    local_action: wait_for host={{ inventory_hostname }} port=22
+
+    
+- hosts: all
+  user: ec2-user
+  sudo: True
+  vars_files:
+  - "../config/variables.yml"
+  gather_facts: False
+  
+  tasks:
+
+#
+# Removes HDP repo [Ambari Issue - AMBARI-11990]
+#
+  - name: Remove remote HDP repo (ambari installed its own HDP and HDP-UTIL repos) 
+    file: path=/etc/yum.repos.d/hdp.repo state=absent

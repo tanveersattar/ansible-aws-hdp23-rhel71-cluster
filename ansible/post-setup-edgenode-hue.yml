@@ -1,0 +1,31 @@
+---
+#-------------------------------------------------------------------------------------------------------
+# Description: 
+#    Setup and configures the following on edge node:
+#      - Hue Server
+# 
+# Note:  
+#   This has to be executed after HDP cluster is setup using Ambari. 
+#   This is work in progress.
+#    
+# Author: 
+#   Tanveer Sattar (tanveersattar@yahoo.com)
+#-------------------------------------------------------------------------------------------------------
+- hosts: all
+  user: ec2-user
+  sudo: True
+  vars_files:
+  - "../config/variables.yml"
+  gather_facts: False
+  
+  tasks:
+#
+# Install and Start Hue       
+#
+  - name: Install Hue
+    yum: name=hue state=present
+
+  - name: Start Hue
+    service: name=hue state=restarted   
+      
+  - debug: msg="Hue Server available at http://{{ inventory_hostname }}:8000"  
